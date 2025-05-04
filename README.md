@@ -20,6 +20,8 @@ FramePack can be trained with a much larger batch size, similar to the batch siz
 
 # News
 
+**2025 May 04:** Enhanced Version - Added support for HD resolutions (720p, 1080p), multiple frame rates (16, 24, 30 FPS), and seed control.
+
 **2025 May 03:** The FramePack-F1 is released. [Try it here.](https://github.com/lllyasviel/FramePack/discussions/459)
 
 Note that this GitHub repository is the only official FramePack website. We do not have any web services. All other websites are spam and fake, including but not limited to `framepack.co`, `frame_pack.co`, `framepack.net`, `frame_pack.net`, `framepack.ai`, `frame_pack.ai`, `framepack.pro`, `frame_pack.pro`, `framepack.cc`, `frame_pack.cc`,`framepackai.co`, `frame_pack_ai.co`, `framepackai.net`, `frame_pack_ai.net`, `framepackai.pro`, `frame_pack_ai.pro`, `framepackai.cc`, `frame_pack_ai.cc`, and so on. Again, they are all spam and fake. **Do not pay money or download files from any of those websites.**
@@ -34,7 +36,8 @@ Requirements:
 
 * Nvidia GPU in RTX 30XX, 40XX, 50XX series that supports fp16 and bf16. The GTX 10XX/20XX are not tested.
 * Linux or Windows operating system.
-* At least 6GB GPU memory.
+* At least 6GB GPU memory for default resolution.
+* For HD resolutions: at least 8GB GPU memory (720p) or 12GB GPU memory (1080p).
 
 To generate 1-minute video (60 seconds) at 30fps (1800 frames) using 13B model, the minimal required GPU memory is 6GB. (Yes 6 GB, not a typo. Laptop GPUs are okay.)
 
@@ -90,6 +93,25 @@ Because this is a next-frame-section prediction model, videos will be generated 
 You will see the progress bar for each section and the latent preview for the next section.
 
 Note that the initial progress may be slower than later diffusion as the device may need some warmup.
+
+## New Features!
+
+### Video Resolution Options
+Now supports multiple resolution options:
+- **640 (default)**: Works on GPUs with 6GB+ VRAM
+- **720 (HD)**: Requires 8GB+ VRAM, approximately 2x slower than default
+- **1080 (Full HD)**: Requires 12GB+ VRAM, approximately 4x slower than default
+
+### Frame Rate Options
+Choose your preferred frame rate:
+- **16 fps**: Slow motion effect
+- **24 fps**: Cinematic feel
+- **30 fps**: Default, smooth motion
+
+### Seed Control
+- Use the "Use Fixed Seed" option to maintain consistency across multiple generations
+- When unchecked, a new random seed is generated for each video
+- The current seed is always displayed so you can reproduce favorite results
 
 # Sanity Check
 
