@@ -27,6 +27,8 @@ from transformers import SiglipImageProcessor, SiglipVisionModel
 from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
+# Global variable to store the last generated noise
+last_generated_noise = None
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--share', action='store_true')
@@ -101,7 +103,15 @@ os.makedirs(outputs_folder, exist_ok=True)
 
 @torch.no_grad()
 def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, fps):
-    total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
+    global last_generated_noise
+    
+    # Generate the random noise using the seed
+    rnd = torch.Generator("cpu").manual_seed(seed)
+    
+    # Extract fps value from the radio button selection
+    fps_value = int(fps.split(" ")[0])
+    # Calculate frames based on selected FPS instead of hardcoded 30
+    total_latent_sections = (total_second_length * fps_value) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
 
     job_id = generate_timestamp()
@@ -179,8 +189,6 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
 
         stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Start sampling ...'))))
 
-        rnd = torch.Generator("cpu").manual_seed(seed)
-
         history_latents = torch.zeros(size=(1, 16, 16 + 2 + 1, height // 8, width // 8), dtype=torch.float32).cpu()
         history_pixels = None
 
@@ -217,7 +225,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 current_step = d['i'] + 1
                 percentage = int(100.0 * current_step / steps)
                 hint = f'Sampling {current_step}/{steps}'
-                desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
+                fps_value = int(fps.split(" ")[0])
+                desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / fps_value) :.2f} seconds (FPS-{fps_value}). The video is being extended now ...'
                 stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
                 return
 
@@ -301,11 +310,16 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
     return
 
 
-def process(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, fps):
+def process(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, fps, use_fixed_seed):
     global stream
     assert input_image is not None, 'No input image!'
-
-    yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True)
+    
+    # Generate a new random seed if Use Fixed Seed is not checked
+    if not use_fixed_seed:
+        new_seed = torch.randint(0, 1000000, (1,)).item()
+        seed = new_seed
+    
+    yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), gr.update(value=seed)
 
     stream = AsyncStream()
 
@@ -318,14 +332,14 @@ def process(input_image, prompt, n_prompt, seed, total_second_length, latent_win
 
         if flag == 'file':
             output_filename = data
-            yield output_filename, gr.update(), gr.update(), gr.update(), gr.update(interactive=False), gr.update(interactive=True)
+            yield output_filename, gr.update(), gr.update(), gr.update(), gr.update(interactive=False), gr.update(interactive=True), gr.update()
 
         if flag == 'progress':
             preview, desc, html = data
-            yield gr.update(), gr.update(visible=True, value=preview), desc, html, gr.update(interactive=False), gr.update(interactive=True)
+            yield gr.update(), gr.update(visible=True, value=preview), desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update()
 
         if flag == 'end':
-            yield output_filename, gr.update(visible=False), gr.update(), '', gr.update(interactive=True), gr.update(interactive=False)
+            yield output_filename, gr.update(visible=False), gr.update(), '', gr.update(interactive=True), gr.update(interactive=False), gr.update()
             break
 
 
@@ -376,11 +390,14 @@ with block:
                 # Add FPS selection
                 gr.Markdown("### Frame Rate")
                 fps = gr.Radio(
-                    choices=["24 fps (cinematic)", "30 fps (default)"], 
+                    choices=["16 fps (slow motion)", "24 fps (cinematic)", "30 fps (default)"], 
                     value="30 fps (default)",
                     label="FPS (Frames Per Second)",
                     interactive=True
                 )
+                
+                gr.Markdown("### Noise Settings")
+                use_fixed_seed = gr.Checkbox(label='Use Fixed Seed', value=False, info='When checked, the same seed value will be used for each generation')
 
                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
 
@@ -407,8 +424,8 @@ with block:
 
     gr.HTML('<div style="text-align:center; margin-top:20px;">Share your results and find ideas at the <a href="https://x.com/search?q=framepack&f=live" target="_blank">FramePack Twitter (X) thread</a></div>')
 
-    ips = [input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, fps]
-    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button])
+    ips = [input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, fps, use_fixed_seed]
+    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, seed])
     end_button.click(fn=end_process)
 
 
